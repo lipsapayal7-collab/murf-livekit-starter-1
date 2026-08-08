@@ -181,94 +181,203 @@ export function AgentSessionView_01({
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { state: agentState } = useAgent();
 
-  const controls: AgentControlBarControls = {
-    leave: true,
-    microphone: true,
-    chat: supportsChatInput,
-    camera: supportsVideoInput,
-    screenShare: supportsScreenShare,
-  };
+const getAgentStatus = () => {
+  switch (agentState) {
+    case 'listening':
+      return {
+        label: 'Listening to you',
+        description: "Go ahead, I'm listening.",
+      };
 
-  useEffect(() => {
-    const lastMessage = messages.at(-1);
-    const lastMessageIsLocal = lastMessage?.from?.isLocal === true;
+    case 'speaking':
+      return {
+        label: 'Agent is speaking',
+        description: 'Please wait while I respond.',
+      };
 
-    if (scrollAreaRef.current && lastMessageIsLocal) {
-      scrollAreaRef.current.scrollTop = scrollAreaRef.current.scrollHeight;
-    }
-  }, [messages]);
+    case 'thinking':
+      return {
+        label: 'Thinking...',
+        description: "I'm preparing a response.",
+      };
+
+    default:
+      return {
+        label: 'Connected',
+        description: 'You can start talking.',
+      };
+  }
+};
+
+const agentStatus = getAgentStatus();
+
+const controls: AgentControlBarControls = {
+  leave: true,
+  microphone: true,
+  chat: supportsChatInput,
+  camera: supportsVideoInput,
+  screenShare: supportsScreenShare,
+};
 
   return (
     <section
-      ref={ref}
-      className={cn('bg-background relative z-10 h-full w-full overflow-hidden', className)}
-      {...props}
-    >
+  ref={ref}
+  className={cn(
+    'relative z-10 h-full w-full overflow-hidden bg-[#f7f9fc] text-slate-900',
+    className
+  )}
+  {...props}
+>
+  <header className="absolute left-0 right-0 top-0 z-50 flex h-16 items-center justify-between border-b bg-white px-6 shadow-sm">
+  <div className="flex items-center gap-3">
+    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-600 text-lg">
+      🇮🇳
+    </div>
+
+    <div>
+      <p className="text-sm font-bold text-slate-800">
+        Jan Sahay
+      </p>
+      <p className="text-[10px] text-slate-400">
+        AI Citizen Voice Assistant
+      </p>
+    </div>
+  </div>
+
+  <select
+    className="rounded-lg border bg-white px-3 py-2 text-xs font-medium text-slate-700 outline-none"
+    defaultValue="English"
+  >
+    <option>English</option>
+    <option>हिन्दी</option>
+    <option>Odia</option>
+    <option>Bengali</option>
+  </select>
+</header>
       <Fade top className="absolute inset-x-4 top-0 z-10 h-40" />
       {/* transcript */}
 
-      <div className="absolute top-0 bottom-[135px] flex w-full flex-col md:bottom-[170px]">
-        <AnimatePresence>
-          {chatOpen && (
-            <motion.div
-              {...CHAT_MOTION_PROPS}
-              className="flex h-full w-full flex-col gap-4 space-y-3 transition-opacity duration-300 ease-out"
-            >
-              <AgentChatTranscript
-                agentState={agentState}
-                messages={messages}
-                className="mx-auto w-full max-w-2xl [&_.is-user>div]:rounded-[22px] [&>div>div]:px-4 [&>div>div]:pt-40 md:[&>div>div]:px-6"
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+     <div className="flex h-full w-full flex-col bg-[#f5f7fa] pt-16">
+
+  {/* Main split screen */}
+  <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 p-5 md:grid-cols-2">
+
+    {/* LEFT — AGENT */}
+    <div className="flex min-h-0 flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
+
+      {/* Avatar */}
+      <div className="flex h-32 w-32 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br from-green-100 to-blue-100 text-7xl shadow-lg">
+        👨‍💼
       </div>
-      {/* Tile layout */}
-      <TileLayout
-        chatOpen={chatOpen}
-        audioVisualizerType={audioVisualizerType}
-        audioVisualizerColor={audioVisualizerColor}
-        audioVisualizerColorShift={audioVisualizerColorShift}
-        audioVisualizerBarCount={audioVisualizerBarCount}
-        audioVisualizerRadialBarCount={audioVisualizerRadialBarCount}
-        audioVisualizerRadialRadius={audioVisualizerRadialRadius}
-        audioVisualizerGridRowCount={audioVisualizerGridRowCount}
-        audioVisualizerGridColumnCount={audioVisualizerGridColumnCount}
-        audioVisualizerWaveLineWidth={audioVisualizerWaveLineWidth}
-      />
-      {/* Bottom */}
-      <motion.div
-        {...BOTTOM_VIEW_MOTION_PROPS}
-        className="absolute inset-x-3 bottom-0 z-50 md:inset-x-12"
-      >
-        {/* Pre-connect message */}
-        {isPreConnectBufferEnabled && (
-          <AnimatePresence>
-            {messages.length === 0 && (
-              <MotionMessage
-                key="pre-connect-message"
-                duration={2}
-                aria-hidden={messages.length > 0}
-                {...SHIMMER_MOTION_PROPS}
-                className="pointer-events-none mx-auto block w-full max-w-2xl pb-4 text-center text-sm font-semibold"
-              >
-                {preConnectMessage}
-              </MotionMessage>
-            )}
-          </AnimatePresence>
-        )}
-        <div className="bg-background relative mx-auto max-w-2xl pb-3 md:pb-12">
-          <Fade bottom className="absolute inset-x-0 top-0 h-4 -translate-y-full" />
-          <AgentControlBar
-            variant="livekit"
-            controls={controls}
-            isChatOpen={chatOpen}
-            isConnected={session.isConnected}
-            onDisconnect={session.end}
-            onIsChatOpenChange={setChatOpen}
+
+      <h2 className="mt-5 text-xl font-bold text-slate-800">
+        Jan Sahay
+      </h2>
+
+      <p className="mt-1 text-sm font-medium text-slate-500">
+        {agentStatus.label}
+      </p>
+
+      <p className="mt-1 text-xs text-slate-400">
+        {agentStatus.description}
+      </p>
+
+      {/* Waveform */}
+      <div className="mt-8 flex h-20 items-center gap-2">
+        {[0, 1, 2, 3, 4].map((bar) => (
+          <motion.div
+            key={bar}
+            animate={
+              agentState === 'listening' ||
+              agentState === 'speaking'
+                ? { height: [18, 45, 25, 60, 20] }
+                : { height: 18 }
+            }
+            transition={{
+              duration: 0.8,
+              repeat:
+                agentState === 'listening' ||
+                agentState === 'speaking'
+                  ? Infinity
+                  : 0,
+              delay: bar * 0.1,
+            }}
+            className="w-2 rounded-full bg-[#159447]"
           />
+        ))}
+      </div>
+
+    </div>
+
+    {/* RIGHT — TRANSCRIPT */}
+    <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+      {/* Transcript header */}
+      <div className="flex items-center justify-between border-b px-5 py-4">
+
+        <div>
+          <h2 className="text-sm font-bold text-slate-800">
+            LIVE TRANSCRIPT
+          </h2>
+
+          <p className="mt-1 text-xs text-slate-400">
+            Conversation with Jan Sahay
+          </p>
         </div>
-      </motion.div>
+
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-green-500" />
+          <span className="text-xs font-semibold text-green-600">
+            LIVE
+          </span>
+        </div>
+
+      </div>
+
+      {/* Messages */}
+      <div className="min-h-0 flex-1 overflow-y-auto p-5">
+
+       <AgentChatTranscript
+  agentState={agentState}
+  messages={messages}
+  className="
+    w-full
+    [&_*]:text-slate-800
+
+    [&_.is-user>div]:bg-slate-800
+    [&_.is-user>div]:text-white
+    [&_.is-user>div_*]:text-white
+
+    [&_.is-agent>div]:bg-slate-100
+    [&_.is-agent>div]:text-slate-800
+    [&_.is-agent>div_*]:text-slate-800
+
+    [&_.is-user>div]:rounded-2xl
+    [&_.is-agent>div]:rounded-2xl
+  "
+/>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  {/* Existing controls */}
+  <div className="shrink-0 border-t bg-white p-3">
+    <AgentControlBar
+      variant="livekit"
+      controls={controls}
+      isChatOpen={chatOpen}
+      isConnected={session.isConnected}
+      onDisconnect={session.end}
+      onIsChatOpenChange={setChatOpen}
+    />
+  </div>
+
+</div>
+      
+      
     </section>
   );
 }

@@ -21,10 +21,41 @@ logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
 
-try:
-    from prompt import SYSTEM_PROMPT
-except ImportError:
-    from src.prompt import SYSTEM_PROMPT
+# Change this prompt to change what your voice agent does.
+# See README.md for example prompts (customer support, language tutor, receptionist).
+# prompt.py
+
+SYSTEM_PROMPT = """
+IDENTITY:
+- Name: Jan Sahay (जन सहाय)
+- Backstory: You are a friendly, warm, and highly knowledgeable digital assistant representing the National Financial Literacy Council (NFLC) of India.
+- Creator / Organization: If asked who built or created you ("kisne banaya hai"), state that you were made by Mr. Abhishek Ji.
+- Role: Your purpose is to educate citizens, make financial literacy accessible, and promote safe digital banking habits across India.
+
+OBJECTIVES:
+- Provide clear and correct information about Indian government financial schemes (such as PMJDY, PMSBY, PMJJBY, APY, SSY).
+- Confirm that the user understands the key eligibility criteria or next steps to apply for their schemes of interest.
+- Actively raise awareness about digital banking safety, emphasizing how to protect oneself from online fraud.
+
+KNOWLEDGE:
+- Schemes: Pradhan Mantri Jan Dhan Yojana (PMJDY), Pradhan Mantri Suraksha Bima Yojana (PMSBY), Pradhan Mantri Jeevan Jyoti Bima Yojana (PMJJBY), Atal Pension Yojana (APY), and Sukanya Samriddhi Yojana (SSY).
+- Digital Payments: UPI, mobile banking apps, ATMs, and safe transactions.
+- Boundaries: You do not have access to individual user bank account records, cannot check application statuses, and cannot process applications directly.
+
+LANGUAGE:
+- Mirror the user's language and register. If they start in Hindi or mix Hindi with English (Hinglish/code-mixed), respond in natural, conversational Hinglish using Devanagari (Hindi) script (e.g. write English terms phonetically in Hindi script like 'स्कीम्स' for schemes, 'बैंक' for bank).
+- Keep the tone polite, warm, and highly respectful (e.g., using 'aap').
+- Ensure sentences are short and conversational, as they are spoken out loud.
+- IMPORTANT: Do not use any markdown formatting, asterisks, bullet points, emojis, or special symbols in your text responses.
+
+GUARDRAILS:
+- NEVER ask the user for their PIN, OTP, password, UPI PIN, credit/debit card numbers, or full bank account numbers. If the user starts sharing this, stop them immediately and warn them.
+- NEVER promise or guarantee scheme approval or loan approval. State clearly that approvals depend on meeting official criteria and are handled by the banks/government.
+- ESCALATION SCRIPT: If the user asks for application tracking, account-specific issues, or claims approval status, use this response style: "Aap iski details ke liye bank branch ya official government portal visit karein. Main is scheme ke details aur eligibility criteria ke bare mein bata sakta hoon."
+
+FIRST-TURN GREETING:
+- Always start the conversation with: "नमस्ते! मैं जन सहाय हूँ। मुझे अपनी फाइनेंशियल दोस्त समझिए। मैं सरकारी फाइनेंशियल स्कीम्स और सेफ बैंकिंग से जुड़े सवालों में आपकी मदद करने के लिए यहाँ हूँ। बताइए, आज मैं आपकी कैसे मदद कर सकती हूँ?"
+"""
 
 
 class Assistant(Agent):
@@ -61,53 +92,63 @@ server.setup_fnc = prewarm
 
 @server.rtc_session(agent_name="my-agent")
 async def my_agent(ctx: JobContext):
-    # Logging setup
-    # Add any other context you want in all log entries here
+
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
 
-    # Set up a voice AI pipeline using Murf Falcon, Gemini, Deepgram, and the LiveKit turn detector
     session = AgentSession(
-        # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
         stt=deepgram.STT(model="nova-3", language="multi"),
-        # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
-        llm=google.LLM(
-                model="gemini-3.5-flash",
-            ),
-        # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
-           tts=murf.TTS(
-                voice="Anisha", # make sure locale key is not hardcoded
-                style="Conversation",
-                tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
-                text_pacing=True
-            ),
+        llm=google.LLM(model="gemini-3.5-flash-lite"),
+        tts=murf.TTS(
+            voice="Anisha",
+            locale="hi-IN",
+            style="Conversation",
+            tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
+            text_pacing=True,
+        ),
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
         preemptive_generation=True,
     )
-    # To use a realtime model instead of a voice pipeline, use the following session setup instead.
-    # (Note: This is for the OpenAI Realtime API. For other providers, see https://docs.livekit.io/agents/models/realtime/))
-    # 1. Install livekit-agents[openai]
-    # 2. Set OPENAI_API_KEY in .env.local
-    # 3. Add `from livekit.plugins import openai` to the top of this file
-    # 4. Use the following session setup instead of the version above
-    # session = AgentSession(
-    #     llm=openai.realtime.RealtimeModel(voice="marin")
-    # )
 
-    # # Add a virtual avatar to the session, if desired
-    # # For other providers, see https://docs.livekit.io/agents/models/avatar/
-    # avatar = hedra.AvatarSession(
-    #   avatar_id="...",  # See https://docs.livekit.io/agents/models/avatar/plugins/hedra
-    # )
-    # # Start the avatar and wait for it to join
-    # await avatar.start(session, room=ctx.room)
+    @session.on("user_input_transcribed")
+    def on_user_input_transcribed(ev: UserInputTranscribedEvent):
 
-    # Start the session, which initializes the voice pipeline and warms up the models
+        transcript = ev.transcript.strip().lower()
+
+        if not transcript:
+            return
+
+        has_devanagari = any(
+            0x0900 <= ord(c) <= 0x097F
+            for c in transcript
+        )
+
+        hindi_keywords = {
+            "kya","hai","aur","main","haan","nahi","aap",
+            "namaste","shukriya","yojana","batao","batayiye",
+            "samjhao","dhan","suraksha","bima","pension",
+            "mein","ke","ki","se","ko","ka","jo","toh",
+            "bhi","ho","kar","raha","rahi","mujhe","mera",
+            "meri","hum","tum","apna","apni","karke",
+            "karo","karna","tha","thi","the","ab","kab","sab"
+        }
+
+        words = set(transcript.split())
+        has_hindi_words = not words.isdisjoint(hindi_keywords)
+
+        if has_devanagari or has_hindi_words:
+            session.tts.update_options(
+                voice="Anisha",
+                locale="hi-IN"
+            )
+        else:
+            session.tts.update_options(
+                voice="Anisha",
+                locale="en-IN"
+            )
+
     await session.start(
         agent=Assistant(),
         room=ctx.room,
@@ -123,7 +164,6 @@ async def my_agent(ctx: JobContext):
         ),
     )
 
-    # Join the room and connect to the user
     await ctx.connect()
 
 

@@ -12,6 +12,7 @@ from livekit.agents import (
     inference,
     tokenize,
     room_io,
+    UserInputTranscribedEvent,
 )
 from livekit.plugins import murf, silero, google, deepgram, noise_cancellation
 from livekit.plugins.turn_detector.multilingual import MultilingualModel
@@ -20,29 +21,10 @@ logger = logging.getLogger("agent")
 
 load_dotenv(".env.local")
 
-# Change this prompt to change what your voice agent does.
-# See README.md for example prompts (customer support, language tutor, receptionist).
-SYSTEM_PROMPT = """
-You are a knowledgeable and trustworthy Financial Services Support Agent specializing in Indian Government financial schemes, banking services, financial literacy, and fraud awareness. Assist users by explaining government schemes, banking processes, eligibility criteria, required documents, application procedures, and financial concepts in simple language.
-
-You can help with:
-- Government schemes (PMJDY, PMMY, PM-Kisan, APY, PMSBY, PMJJBY, Sukanya Samriddhi, PPF, NPS, SCSS, KCC, Stand-Up India, Startup India, DBT, and other Government-approved schemes)
-- Banking services (Savings Account, Current Account, FD, RD, Loans, UPI, NEFT, RTGS, IMPS, Internet Banking, Mobile Banking, KYC, Aadhaar Banking, RuPay Cards, NPCI services)
-- Financial literacy (saving, budgeting, insurance, pensions, investments, credit score, digital payments)
-- Fraud awareness (UPI fraud, OTP scams, phishing, QR code scams, fake customer care, loan scams, KYC fraud, identity theft, ATM fraud, cyber safety)
-
-Guidelines:
-- Explain everything in clear, simple, step-by-step language.
-- Provide accurate information based on official Government of India, RBI, NPCI, or authorized banking sources.
-- Mention eligibility, benefits, required documents, application process, and important notes whenever applicable.
-- Encourage users to verify important information through official government portals or bank branches.
-- Never ask for or store sensitive information such as OTPs, UPI PINs, passwords, debit/credit card numbers, CVV, or banking credentials.
-- Warn users whenever a query involves potential fraud or financial scams.
-- If a user reports fraud, advise them to immediately contact their bank, call the Cyber Crime Helpline (1930), and report the incident on the National Cyber Crime Reporting Portal.
-- If you are unsure about any information, clearly state your uncertainty and recommend contacting the relevant bank or government department instead of guessing.
-
-Your responses should be concise, professional, user-friendly, and focused on helping users make informed financial decisions while staying safe.
-"""
+try:
+    from prompt import SYSTEM_PROMPT
+except ImportError:
+    from src.prompt import SYSTEM_PROMPT
 
 
 class Assistant(Agent):
@@ -89,30 +71,24 @@ async def my_agent(ctx: JobContext):
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=deepgram.STT(model="nova-3"),
+        stt=deepgram.STT(model="nova-3", language="multi"),
         # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
         # See all available models at https://docs.livekit.io/agents/models/llm/
         llm=google.LLM(
-                model="gemini-3.5-flash-lite",
+                model="gemini-3.5-flash",
             ),
         # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
         # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
-        tts=murf.TTS(
-                voice="Anisha", 
-                locale="en-IN",
+           tts=murf.TTS(
+                voice="Anisha", # make sure locale key is not hardcoded
                 style="Conversation",
                 tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
                 text_pacing=True
             ),
-        # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
-        # See more at https://docs.livekit.io/agents/build/turns
         turn_detection=MultilingualModel(),
         vad=ctx.proc.userdata["vad"],
-        # allow the LLM to generate a response while waiting for the end of turn
-        # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
         preemptive_generation=True,
     )
-
     # To use a realtime model instead of a voice pipeline, use the following session setup instead.
     # (Note: This is for the OpenAI Realtime API. For other providers, see https://docs.livekit.io/agents/models/realtime/))
     # 1. Install livekit-agents[openai]

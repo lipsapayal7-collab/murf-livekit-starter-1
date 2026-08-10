@@ -109,77 +109,36 @@ flowchart TD
     User((🎙️ User Speaks))
         -->|Audio Stream| STT[Deepgram Nova-3 STT]
 
-    STT
-        -->|Transcript| Agent[LiveKit Python Agent]
+    STT -->|Transcript| Agent[LiveKit Python Agent]
 
-    subgraph Agent Core
-
-        Agent
-            -->|Checks Caller ID| DB_Lookup[lookup_caller]
-
-        Agent
-            -->|Fetches Live Scheme Data| Tool[get_official_scheme_info]
-
-        Agent
-            -->|Saves Approved Profile| DB_Save[save_caller]
-
+    subgraph Agent_Core
+        Agent -->|Checks Caller ID| DB_Lookup[lookup_caller]
+        Agent -->|Fetches Live Scheme Data| Tool[get_official_scheme_info]
+        Agent -->|Saves Approved Profile| DB_Save[save_caller]
     end
 
-    Tool
-        -->|Official DFS Data + Source Date| Agent
+    Tool -->|Official DFS Data + Source Date| Agent
+    DB_Lookup -->|Reads SQLite| Agent
+    DB_Save -->|Writes SQLite| Agent
 
-    DB_Lookup
-        -->|Reads SQLite| Agent
+    Agent -->|Response Generation| LLM[Gemini 3.5 Flash Lite]
+    LLM -->|Text Response| TTS[Murf Falcon TTS]
+    TTS -->|Audio Output| User
+```
 
-    DB_Save
-        -->|Writes SQLite| Agent
+## 🛠️ Technology Stack
 
-    Agent
-        -->|Response Generation| LLM[Gemini 3.5 Flash Lite]
-
-    LLM
-        -->|Text Response| TTS[Murf Falcon TTS]
-
-    TTS
-        -->|Audio Output| User
-
-🛠️ Technology Stack
-
-ComponentTechnology
-
-
-
-Voice Agent Framework
-
-LiveKit Agents
-
-LLM
-
-Gemini 3.5 Flash Lite
-
-Speech-to-Text
-
-Deepgram Nova-3
-
-Text-to-Speech
-
-Murf Falcon TTS
-
-TTS Voice
-
-Anisha
-
-Database
-
-SQLite
-
-Language Detection
-
-Transcript-based detection
-
-Live Data
-
-Department of Financial Services website
+| Component | Technology |
+|---|---|
+| Voice Agent Framework | LiveKit Agents |
+| Programming Language | Python |
+| LLM | Gemini 3.5 Flash Lite |
+| Speech-to-Text | Deepgram Nova-3 |
+| Text-to-Speech | Murf Falcon TTS |
+| TTS Voice | Anisha |
+| Database | SQLite |
+| Language Detection | Transcript-based detection |
+| Live Data | Department of Financial Services website |
 
 Programming Language
 

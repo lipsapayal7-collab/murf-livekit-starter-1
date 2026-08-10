@@ -1,236 +1,502 @@
-# Backend — Voice Agent with Murf Falcon TTS
+# Jan Sahay (जन सहाय) — Financial Literacy Voice Agent
 
-The Python backend for the Voice Agent Starter. It runs a real-time voice AI pipeline using [LiveKit Agents](https://docs.livekit.io/agents), connecting Murf Falcon TTS, Deepgram STT, and Google Gemini into a single conversational agent.
+Jan Sahay is an AI-powered voice assistant built for the **Financial Literacy & Services Track**.
 
-## How It Works
+It helps citizens understand Indian government financial schemes and promotes safe digital banking habits through natural voice interaction.
 
-```
-User speaks → [Deepgram STT] → text → [Gemini LLM] → response → [Murf Falcon TTS] → audio → User hears
-```
+The agent supports persistent caller memory, consent-based information storage, and live government scheme information lookup.
 
-LiveKit handles the real-time audio transport. The agent connects to LiveKit as a participant, listens for user speech, and responds with synthesized audio.
+---
 
-## Setup
+## 🌟 Key Capabilities (Day 4 & Day 5 Updates)
 
-### 1. Install dependencies
+### 1. Persistent Memory & Consent — Day 4
 
-```bash
-cd backend
+- Retains caller preferences, names, and scheme discussions across sessions using SQLite (`financial_users.db`).
+- Uses the `lookup_caller` tool to retrieve existing caller information.
+- Uses the `save_caller` tool to store approved caller information.
+- Enforces explicit user consent before storing personal facts.
+- Never stores sensitive financial credentials such as Aadhaar, PAN, OTP, PIN, passwords, or card details.
+
+### 2. Real-time Domain Tool / Function Calling — Day 5
+
+- **Tool Name:** `get_official_scheme_info`
+- Fetches current official information for:
+  - PMJDY — Pradhan Mantri Jan Dhan Yojana
+  - PMSBY — Pradhan Mantri Suraksha Bima Yojana
+  - PMJJBY — Pradhan Mantri Jeevan Jyoti Bima Yojana
+- Retrieves information such as:
+  - Premium
+  - Eligibility criteria
+  - Benefits
+  - Coverage
+- The tool is automatically called when the caller asks for current, latest, official, eligibility, premium, or benefit information.
+
+### 3. Live Government Data Source
+
+The tool fetches information directly from the official:
+
+**Department of Financial Services, Ministry of Finance, Government of India**
+
+The data is **LIVE**, not a hand-built local dataset.
+
+The tool performs an HTTP request to the official government webpage when the relevant question is asked.
+
+### 4. Data Freshness
+
+The tool provides two important timestamps:
+
+- **`source_updated`** — the update date shown on the official government webpage.
+- **`fetched_at`** — the date and time when Jan Sahay fetched the information.
+
+This allows the agent to distinguish between:
+
+> "The information was updated on January 5, 2026"
+
+and:
+
+> "The information was fetched live just now."
+
+The agent is instructed not to describe an older source update as "today's update".
+
+### 5. Graceful Failure Handling
+
+The live lookup uses a timeout to prevent the agent from waiting indefinitely for the government source.
+
+If the official source cannot be reached:
+
+- The tool returns a failure result.
+- The agent does not invent or guess current figures.
+- The caller receives a natural spoken fallback explaining that live verification is temporarily unavailable.
+
+Example:
+
+> "I'm sorry, but I can't verify the latest information from the official government source right now, so I don't want to give you an incorrect answer."
+
+This provides a graceful failure path instead of silence or hallucinated information.
+
+### 6. Language Adaptation
+
+- Every new call starts in **English**.
+- If the caller speaks English, the agent continues in English.
+- If the caller speaks Hindi or Hinglish, the agent can naturally switch to Hindi/Hinglish.
+- The agent mirrors the caller's language after the first turn.
+
+### 7. Digital Banking Safety
+
+Jan Sahay promotes safe banking practices.
+
+The agent never asks users to provide:
+
+- Aadhaar numbers
+- PAN numbers
+- Bank account numbers
+- Debit/credit card numbers
+- OTPs
+- PINs
+- Passwords
+- UPI PINs
+
+The agent also warns callers not to share sensitive banking credentials.
+
+---
+
+## 🏗️ Architecture & Data Flow
+
+```mermaid
+flowchart TD
+
+    User((🎙️ User Speaks))
+        -->|Audio Stream| STT[Deepgram Nova-3 STT]
+
+    STT
+        -->|Transcript| Agent[LiveKit Python Agent]
+
+    subgraph Agent Core
+
+        Agent
+            -->|Checks Caller ID| DB_Lookup[lookup_caller]
+
+        Agent
+            -->|Fetches Live Scheme Data| Tool[get_official_scheme_info]
+
+        Agent
+            -->|Saves Approved Profile| DB_Save[save_caller]
+
+    end
+
+    Tool
+        -->|Official DFS Data + Source Date| Agent
+
+    DB_Lookup
+        -->|Reads SQLite| Agent
+
+    DB_Save
+        -->|Writes SQLite| Agent
+
+    Agent
+        -->|Response Generation| LLM[Gemini 3.5 Flash Lite]
+
+    LLM
+        -->|Text Response| TTS[Murf Falcon TTS]
+
+    TTS
+        -->|Audio Output| User
+
+🛠️ Technology Stack
+
+ComponentTechnology
+
+
+
+Voice Agent Framework
+
+LiveKit Agents
+
+LLM
+
+Gemini 3.5 Flash Lite
+
+Speech-to-Text
+
+Deepgram Nova-3
+
+Text-to-Speech
+
+Murf Falcon TTS
+
+TTS Voice
+
+Anisha
+
+Database
+
+SQLite
+
+Language Detection
+
+Transcript-based detection
+
+Live Data
+
+Department of Financial Services website
+
+Programming Language
+
+Python
+
+🔧 Day 5 Function Tool
+
+get_official_scheme_info
+
+The tool is designed to be called automatically when the caller needs current or official scheme information.
+
+Example user question:
+
+"What is the current premium and eligibility for PMSBY?"
+
+The agent determines that current information is required and calls:
+
+
+
+get_official_scheme_info("PMSBY")
+
+The tool then:
+
+Identifies the requested scheme.
+
+Connects to the official DFS webpage.
+
+Fetches the webpage.
+
+Extracts relevant scheme information.
+
+Extracts the official source update date.
+
+Records the fetch timestamp.
+
+Returns the information to the agent.
+
+The agent converts the result into a natural spoken response.
+
+📊 Example Successful Interaction
+
+User
+
+"What is the current premium and eligibility for PMSBY?"
+
+Tool
+
+
+
+SCHEME LOOKUP TOOL CALLED - scheme=PMSBY
+SCHEME LOOKUP SUCCESS
+
+Agent
+
+"For the Pradhan Mantri Suraksha Bima Yojana, the annual premium is ₹20. The eligibility is for individuals between 18 and 70 years of age with a savings bank account. It provides accidental death and disability cover."
+
+📅 Data Freshness Example
+
+The caller can ask:
+
+"When was this information last updated?"
+
+Jan Sahay uses the source_updated value returned by the live tool.
+
+Example response:
+
+"According to the official Department of Financial Services website, this information was last updated on January 5, 2026."
+
+⚠️ Failure Handling
+
+If the official government source becomes unavailable, the tool catches the network failure.
+
+Example terminal output:
+
+
+
+SCHEME LOOKUP TOOL CALLED - scheme=PMSBY
+SCHEME LOOKUP NETWORK FAILURE
+
+The agent should respond naturally:
+
+"I'm sorry, but I can't verify the latest information from the official government source right now, so I don't want to give you an incorrect answer."
+
+The agent must not invent a current premium, eligibility requirement, benefit, or coverage amount.
+
+🗣️ Scheme Name Recovery
+
+If speech recognition produces an unclear scheme name, Jan Sahay can use a recovery response.
+
+For example:
+
+User
+
+"Is the current PMPSY?"
+
+Agent
+
+"I apologize, but our scheme registry is currently undergoing maintenance. However, generally for basic financial schemes, you will need standard ID proofs like a Voter ID or Driving License. Did you mean PMSBY?"
+
+If the caller confirms:
+
+"Yes."
+
+Jan Sahay can identify PMSBY and use the live scheme information tool before giving current PMSBY information.
+
+🧠 Persistent Memory
+
+Jan Sahay uses SQLite to maintain safe caller information across sessions.
+
+The memory system can retain:
+
+Caller name
+
+Preferred language
+
+Schemes discussed
+
+General eligibility answers
+
+The agent must receive explicit permission before saving information.
+
+Example:
+
+"I can remember your name, preferred language, and the scheme we discussed for your next call. Is it okay if I save this information?"
+
+Only after a clear confirmation does the agent call:
+
+
+
+save_caller
+
+🔐 Privacy & Safety
+
+Jan Sahay follows strict privacy rules.
+
+The agent must never request or store:
+
+
+
+Aadhaar Number
+PAN Number
+Bank Account Number
+Debit/Credit Card Number
+OTP
+PIN
+UPI PIN
+Password
+
+If a caller begins sharing sensitive banking information, the agent warns them to stop.
+
+Jan Sahay also does not:
+
+Approve financial schemes
+
+Guarantee scheme approval
+
+Track individual applications
+
+Access individual bank accounts
+
+Process applications
+
+For account-specific or application-specific issues, the caller is directed to the appropriate bank branch or official government portal.
+
+🚀 How to Run
+
+Install dependencies:
+
+
+
 uv sync
-```
 
-### 2. Configure environment
+Start the development agent:
 
-```bash
-cp .env.example .env.local
-```
 
-Fill in your keys in `.env.local`:
 
-| Variable             | Where to get it                                           |
-| -------------------- | --------------------------------------------------------- |
-| `LIVEKIT_URL`        | [LiveKit Cloud](https://cloud.livekit.io/) → Settings     |
-| `LIVEKIT_API_KEY`    | [LiveKit Cloud](https://cloud.livekit.io/) → Settings     |
-| `LIVEKIT_API_SECRET` | [LiveKit Cloud](https://cloud.livekit.io/) → Settings     |
-| `MURF_API_KEY`       | [murf.ai/api/dashboard](https://murf.ai/api/dashboard)    |
-| `DEEPGRAM_API_KEY`   | [deepgram.com](https://console.deepgram.com/)             |
-| `GOOGLE_API_KEY`     | [aistudio.google.com](https://aistudio.google.com/apikey) |
-
-For LiveKit Cloud users, you can auto-populate LiveKit credentials:
-
-```bash
-lk cloud auth
-lk app env -w -d .env.local
-```
-
-### 3. Download models
-
-```bash
-uv run python src/agent.py download-files
-```
-
-This downloads Silero VAD and the LiveKit turn detector models.
-
-### 4. Run the agent
-
-```bash
-# Development mode (auto-reload)
 uv run python src/agent.py dev
 
-# Or test directly in your terminal (no frontend needed)
+For console testing:
+
+
+
 uv run python src/agent.py console
 
-# Production
-uv run python src/agent.py start
-```
+Make sure the required environment variables are configured in:
 
-## Configuration
 
-All configuration lives in [`src/agent.py`](src/agent.py).
 
-### System prompt
+.env.local
 
-The `SYSTEM_PROMPT` constant at the top of `agent.py` controls what your agent does. Change it to build any voice-powered use case.
+🧪 Day 5 Testing Checklist
 
-#### Example prompts
+Test 1 — Live Data
 
-**Customer Support (default):**
+Ask:
 
-```
-You are a friendly and efficient customer support agent for a tech company. Help users with account issues, billing questions, and product troubleshooting. Be concise, empathetic, and solution-oriented. If you don't know something, say so honestly and offer to escalate.
-```
+"What is the current premium and eligibility for PMSBY?"
 
-**Language Tutor:**
+Expected:
 
-```
-You are a patient and encouraging language tutor helping the user practice conversational Spanish. Speak primarily in Spanish but switch to English to explain grammar or vocabulary when needed. Correct mistakes gently and suggest better phrasing. Keep conversations natural and fun.
-```
 
-**AI Receptionist:**
 
-```
-You are a professional receptionist for a medical clinic. Help callers schedule appointments, answer questions about office hours and services, and take messages for doctors. Be warm but efficient. Ask for the caller's name and reason for calling upfront.
-```
+SCHEME LOOKUP TOOL CALLED
+SCHEME LOOKUP SUCCESS
 
-**Interview Coach:**
+The agent should provide the live information naturally.
 
-```
-You are an experienced interview coach. Conduct mock interviews with the user for software engineering roles. Ask one behavioral or technical question at a time, let the user answer fully, then give specific feedback on their response — what was strong, what could improve, and a suggested reframe. Keep the tone encouraging but honest.
-```
+Test 2 — Source Date
 
-**Sales Assistant:**
+Ask:
 
-```
-You are a knowledgeable sales assistant for an electronics store. Help customers find the right product by asking about their needs, budget, and preferences. Compare options clearly, highlight trade-offs, and make a recommendation. Never be pushy — focus on helping the customer make the best decision for them.
-```
+"When was this information last updated?"
 
-**Fitness Coach:**
+Expected:
 
-```
-You are an upbeat personal fitness coach. Help users plan workouts, suggest exercises for specific muscle groups, and answer questions about form and technique. Ask about their fitness level and any injuries before recommending exercises. Keep instructions clear and motivating.
-```
+The agent states the official source update date.
 
-**Storyteller / Bedtime Narrator:**
+Test 3 — Failure Path
 
-```
-You are a creative storyteller who tells original bedtime stories for children aged 4–8. Ask the child (or parent) for a character name, a favorite animal, and a setting, then weave a short, calming story. Use vivid but simple language. End each story on a peaceful, sleepy note.
-```
+Temporarily make the PMSBY source unavailable.
 
-**Meeting Summarizer:**
+Ask:
 
-```
-You are a meeting assistant. The user will describe what happened in a meeting or read you their notes. Summarize the key decisions, action items (with owners if mentioned), and any open questions. Be concise and structured. Ask clarifying questions if something is ambiguous.
-```
+"What is the current PMSBY premium?"
 
-**Trivia Game Host:**
+Expected:
 
-```
-You are an enthusiastic trivia game host. Ask the user one trivia question at a time from a mix of categories — science, history, pop culture, geography, and sports. Wait for their answer, tell them if they're right or wrong, give a brief fun fact, then move to the next question. Keep score and announce it every 5 questions.
-```
 
-**Mental Health Check-in Companion:**
 
-```
-You are a gentle, non-clinical wellness companion. Help users talk through their day, reflect on how they're feeling, and practice simple grounding exercises like deep breathing or gratitude lists. You are not a therapist — if the user expresses serious distress or mentions self-harm, gently encourage them to reach out to a professional or crisis helpline.
-```
+SCHEME LOOKUP TOOL CALLED
+SCHEME LOOKUP NETWORK FAILURE
 
-### Voice
+The agent should explain that current information cannot be verified.
 
-Set the `voice` argument in the `murf.TTS(...)` call:
+It must not invent or guess the answer.
 
-```python
-tts=murf.TTS(
-    voice="en-US-matthew",    # Change this
-    style="Conversation",
-    tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
-    text_pacing=True
-)
-```
+🎥 Day 5 Demo
 
-Some voice options:
+The Day 5 video demonstrates:
 
-| Voice ID | Description                      |
-| -------- | -------------------------------- |
-| `Anisha` | Indian English, female (default) |
-| `Pooja`  | Indian English, female           |
-| `Samar`  | Indian English, male             |
-| `Amara`  | US English, female               |
-| `Hazel`  | UK English, female               |
-| `Bertie` | UK English, male                 |
-| `Gordon` | US English, male                 |
+Jan Sahay starting in English.
 
-Browse all 150+ voices: [Murf Voice Library](https://murf.ai/api/docs/voices-styles/voice-library).
+A caller asking for current PMSBY information.
 
-### STT (Speech-to-Text)
+Automatic function calling.
 
-Default is Deepgram Nova-3. Change in the `AgentSession(stt=...)` call:
+Live information being retrieved from the official government source.
 
-```python
-stt=deepgram.STT(model="nova-3")
-```
+Natural spoken output.
 
-### LLM
+The official source update date being stated.
 
-Default is Google Gemini. To switch:
+An unclear scheme name being handled gracefully.
 
-- **Gemini (default):** Set `GOOGLE_API_KEY` in `.env.local`
-- **OpenAI:** Set `OPENAI_API_KEY`, install `livekit-agents[openai]`, and change the `llm=` argument
+A simulated live-data failure.
 
-## Testing
+A spoken fallback without hallucinating information.
 
-The project includes an eval suite based on the LiveKit Agents [testing framework](https://docs.livekit.io/agents/build/testing/):
+🌐 Official Data Sources
 
-```bash
-uv run pytest
-```
+The live scheme information is fetched from the official Department of Financial Services website:
 
-Tests are in [`tests/test_agent.py`](tests/test_agent.py) and use LLM-as-judge evaluations to verify the agent behaves correctly (friendly greetings, grounding, refusing harmful requests).
+PMJDY:https://www.financialservices.gov.in/pradhan-mantri-jan-dhan-yojana-pmjdy
 
-To run tests in CI, you'll need to add `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` as repository secrets.
+PMSBY:https://financialservices.gov.in/pmsby
 
-## Deployment
+PMJJBY:https://www.financialservices.gov.in/pmjjby
 
-### Railway
+Data status: LIVE
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/tIVCF1?referralCode=cNjn2P&utm_medium=integration&utm_source=template&utm_campaign=generic)
+No hand-built local dataset is used for the Day 5 live scheme lookup.
 
-Set these environment variables in Railway:
+📁 Project Structure
 
-- `MURF_API_KEY`
-- `DEEPGRAM_API_KEY`
-- `GOOGLE_API_KEY`
-- `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
 
-### Docker
 
-A production-ready [Dockerfile](Dockerfile) is included:
+jan-sahay/
+│
+├── agent.py
+├── prompt.py
+├── database.py
+├── financial_users.db
+├── README.md
+├── .env.local
 
-```bash
-docker build -t murf-voice-agent .
-docker run --env-file .env.local murf-voice-agent
-```
+✅ Day 5 Completion Checklist
 
-## Project Structure
+Real domain data source connected
+Function tool implemented
+Tool automatically called for current scheme information
+Natural spoken response
+Source update date available
+Fetch timestamp available
+Network timeout/failure handling
+No hallucinated current information on tool failure
+Live/local data status documented
+Persistent memory from Day 4 retained
+Consent-based memory saving retained
 
-```
-backend/
-├── src/
-│   └── agent.py          # Agent entrypoint — pipeline, prompt, config
-├── tests/
-│   └── test_agent.py     # LLM-judged eval suite
-├── .env.example           # Environment variable template
-├── pyproject.toml         # Python dependencies (uv)
-├── Dockerfile             # Production container
-└── railway.toml           # Railway deploy config
-```
 
-## Links
 
-- [Murf Falcon TTS Docs](https://murf.ai/api/docs/text-to-speech/streaming)
-- [Murf Voice Library](https://murf.ai/api/docs/voices-styles/voice-library)
-- [LiveKit Agents Docs](https://docs.livekit.io/agents)
-- [Deepgram Nova-3 Docs](https://developers.deepgram.com)
+🎯 Day 5 Summary
 
-## License
+Day 5 upgrades Jan Sahay from an agent that can remember caller information into an agent that can also retrieve live domain information from an external official source.
 
-MIT — see [LICENSE](LICENSE).
+The agent can:
+
+Listen → Understand → Decide to call a tool → Fetch live government data → Check freshness → Speak naturally
+
+If the external source fails, Jan Sahay does not invent an answer. Instead, it provides a clear spoken fallback and asks the caller to try again later.
+
+👩‍💻 Project
+
+Jan Sahay — Financial Literacy Voice Agent
+
+Built as part of the 10 Days Voice Agent Challenge.
+
+**Day 4:** Persistent Memory & Consent  
+**Day 5:** Live Domain Data & Function Calling
+

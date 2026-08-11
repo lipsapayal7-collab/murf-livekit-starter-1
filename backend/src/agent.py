@@ -1,4 +1,10 @@
+from __future__ import annotations
+
+import asyncio
+import json
 import logging
+import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -9,63 +15,88 @@ from livekit.agents import (
     JobContext,
     JobProcess,
     cli,
-    inference,
-    tokenize,
     room_io,
 )
-from livekit.plugins import murf, silero, google, deepgram, noise_cancellation
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
+from livekit.plugins import deepgram, google, murf, noise_cancellation, silero
 
-logger = logging.getLogger("agent")
+from database import init_db
 
-load_dotenv(".env.local")
+logger = logging.getLogger("jan-sahay")
 
-# Change this prompt to change what your voice agent does.
-# See README.md for example prompts (customer support, language tutor, receptionist).
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env.local")
+
+AGENT_NAME = "my-agent"
+ROOM_PREFIX = "jan-sahay-"
+
+
 SYSTEM_PROMPT = """
-You are a knowledgeable and trustworthy Financial Services Support Agent specializing in Indian Government financial schemes, banking services, financial literacy, and fraud awareness. Assist users by explaining government schemes, banking processes, eligibility criteria, required documents, application procedures, and financial concepts in simple language.
+You are Jan Sahay, a friendly AI assistant making an outbound phone call.
 
-You can help with:
-- Government schemes (PMJDY, PMMY, PM-Kisan, APY, PMSBY, PMJJBY, Sukanya Samriddhi, PPF, NPS, SCSS, KCC, Stand-Up India, Startup India, DBT, and other Government-approved schemes)
-- Banking services (Savings Account, Current Account, FD, RD, Loans, UPI, NEFT, RTGS, IMPS, Internet Banking, Mobile Banking, KYC, Aadhaar Banking, RuPay Cards, NPCI services)
-- Financial literacy (saving, budgeting, insurance, pensions, investments, credit score, digital payments)
-- Fraud awareness (UPI fraud, OTP scams, phishing, QR code scams, fake customer care, loan scams, KYC fraud, identity theft, ATM fraud, cyber safety)
+This is a Day 6 outbound call about a government financial scheme.
 
-Guidelines:
-- Explain everything in clear, simple, step-by-step language.
-- Provide accurate information based on official Government of India, RBI, NPCI, or authorized banking sources.
-- Mention eligibility, benefits, required documents, application process, and important notes whenever applicable.
-- Encourage users to verify important information through official government portals or bank branches.
-- Never ask for or store sensitive information such as OTPs, UPI PINs, passwords, debit/credit card numbers, CVV, or banking credentials.
-- Warn users whenever a query involves potential fraud or financial scams.
-- If a user reports fraud, advise them to immediately contact their bank, call the Cyber Crime Helpline (1930), and report the incident on the National Cyber Crime Reporting Portal.
-- If you are unsure about any information, clearly state your uncertainty and recommend contacting the relevant bank or government department instead of guessing.
+CALL FLOW:
 
-Your responses should be concise, professional, user-friendly, and focused on helping users make informed financial decisions while staying safe.
+1. Tell the customer which government scheme they are eligible for.
+2. Clearly state the exact application deadline date.
+3. Ask:
+   "Would you like to apply for this scheme?
+   Please say yes if you want to apply, or no if you want to end the call."
+
+IMPORTANT:
+- YES means the customer wants to apply.
+- NO means the customer wants to end the call.
+
+If the customer says YES:
+- Say that you can provide general information about the application.
+- Continue helping them naturally.
+- Do not claim that the application has been submitted or approved.
+
+If the customer says NO:
+- Say:
+  "No problem. Thank you for your time. Have a great day. Goodbye."
+- End the conversation.
+
+If the customer says "I want to end the call", "goodbye", "stop",
+or otherwise clearly asks to end the call:
+- Say:
+  "Of course. Thank you for your time. Have a great day. Goodbye."
+- End the conversation.
+
+LANGUAGE:
+- Speak in clear, simple English.
+- Keep responses short and natural for a phone call.
+- Clearly pronounce the scheme name and deadline date.
+
+SAFETY:
+- Never ask for Aadhaar, PAN, OTP, PIN, password, CVV,
+  card number, or full bank account number.
+- Never claim an application is submitted or approved.
 """
 
 
-class Assistant(Agent):
-    def __init__(self) -> None:
-        super().__init__(instructions=SYSTEM_PROMPT)
+def get_job_metadata(ctx: JobContext) -> dict:
+    metadata = getattr(ctx.job, "metadata", None)
 
-    # To add tools, use the @function_tool decorator.
-    # Here's an example that adds a simple weather tool.
-    # You also have to add `from livekit.agents import function_tool, RunContext` to the top of this file
-    # @function_tool
-    # async def lookup_weather(self, context: RunContext, location: str):
-    #     """Use this tool to look up current weather information in the given location.
-    #
-    #     If the location is not supported by the weather service, the tool will indicate this. You must tell the user the location's weather is unavailable.
-    #
-    #     Args:
-    #         location: The location to look up weather information for (e.g. city name)
-    #     """
-    #
-    #     logger.info(f"Looking up weather for {location}")
-    #
-    #     return "sunny with a temperature of 70 degrees."
+    if not metadata:
+        return {}
 
+    try:
+        return json.loads(metadata)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def is_outbound_room(room_name: str) -> bool:
+    return room_name.startswith(ROOM_PREFIX)
+
+
+class JanSahay(Agent):
+    def __init__(self, instructions: str = SYSTEM_PROMPT):
+        super().__init__(instructions=instructions)
+
+
+init_db()
 
 server = AgentServer()
 
@@ -77,69 +108,36 @@ def prewarm(proc: JobProcess):
 server.setup_fnc = prewarm
 
 
-@server.rtc_session(agent_name="my-agent")
+@server.rtc_session(agent_name=AGENT_NAME)
 async def my_agent(ctx: JobContext):
-    # Logging setup
-    # Add any other context you want in all log entries here
-    ctx.log_context_fields = {
-        "room": ctx.room.name,
-    }
+    ctx.log_context_fields = {"room": ctx.room.name}
 
-    # Set up a voice AI pipeline using Murf Falcon, Gemini, Deepgram, and the LiveKit turn detector
     session = AgentSession(
-        # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=deepgram.STT(model="nova-3"),
-        # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
+        stt=deepgram.STT(
+            model="nova-3",
+            language="multi",
+        ),
         llm=google.LLM(
-                model="gemini-3.5-flash-lite",
-            ),
-        # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
+            model="gemini-3.5-flash-lite",
+        ),
         tts=murf.TTS(
-                voice="Anisha", 
-                locale="en-IN",
-                style="Conversation",
-                tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
-                text_pacing=True
-            ),
-        # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
-        # See more at https://docs.livekit.io/agents/build/turns
-        turn_detection=MultilingualModel(),
+            voice="Anisha",
+            locale="hi-IN",
+            style="Conversation",
+        ),
         vad=ctx.proc.userdata["vad"],
-        # allow the LLM to generate a response while waiting for the end of turn
-        # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
         preemptive_generation=True,
     )
 
-    # To use a realtime model instead of a voice pipeline, use the following session setup instead.
-    # (Note: This is for the OpenAI Realtime API. For other providers, see https://docs.livekit.io/agents/models/realtime/))
-    # 1. Install livekit-agents[openai]
-    # 2. Set OPENAI_API_KEY in .env.local
-    # 3. Add `from livekit.plugins import openai` to the top of this file
-    # 4. Use the following session setup instead of the version above
-    # session = AgentSession(
-    #     llm=openai.realtime.RealtimeModel(voice="marin")
-    # )
-
-    # # Add a virtual avatar to the session, if desired
-    # # For other providers, see https://docs.livekit.io/agents/models/avatar/
-    # avatar = hedra.AvatarSession(
-    #   avatar_id="...",  # See https://docs.livekit.io/agents/models/avatar/plugins/hedra
-    # )
-    # # Start the avatar and wait for it to join
-    # await avatar.start(session, room=ctx.room)
-
-    # Start the session, which initializes the voice pipeline and warms up the models
     await session.start(
-        agent=Assistant(),
+        agent=JanSahay(),
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
                 noise_cancellation=lambda params: (
                     noise_cancellation.BVCTelephony()
-                    if params.participant.kind
+                    if params.participant
+                    and params.participant.kind
                     == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
                     else noise_cancellation.BVC()
                 ),
@@ -147,9 +145,68 @@ async def my_agent(ctx: JobContext):
         ),
     )
 
-    # Join the room and connect to the user
     await ctx.connect()
 
+    if not is_outbound_room(ctx.room.name):
+        return
 
+    metadata = get_job_metadata(ctx)
+
+    customer_name = metadata.get("customer_name", "there")
+    scheme_name = metadata.get("scheme_name", "Pradhan Mantri Suraksha Bima Yojana ")
+    deadline = metadata.get(
+        "application_deadline",
+        "August 15, 2026",
+    )
+    opening_line = (
+        f"Hello, this is Jan Sahay. "
+        f"I'm calling to inform you that you are eligible "
+        f"for the {scheme_name} "
+        f"The application deadline is {deadline}. "
+        f"Would you like to apply for this scheme? "
+        f"Please say yes if you want to apply, or no if you want stop these call."
+)
+    participant = None
+    for attempt in range(30):
+        participants = list(ctx.room.remote_participants.values())
+        participant = next(
+            (
+                p
+                for p in participants
+                if p.kind
+                == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+            ),
+            None,
+        )
+        logger.info(
+            "Waiting for SIP participant (%d/30). Found: %s",
+            attempt + 1,
+            [p.identity for p in participants],
+        )
+        if participant:
+            break
+        await asyncio.sleep(1)
+    if participant is None:
+        logger.error("SIP phone participant was not found.")
+        return
+    logger.info(
+        "Phone connected: %s",
+        participant.identity,
+    )
+    session.room_io.set_participant(participant.identity)
+    await asyncio.sleep(0.5)
+    logger.info("Speaking Day 6 greeting...")
+    handle = session.say(
+        opening_line,
+        allow_interruptions=False,
+    )
+    await asyncio.wait_for(
+        handle.wait_for_playout(),
+        timeout=60,
+    )
+    logger.info(
+        "Day 6 greeting completed for %s.",
+        customer_name,
+    )
 if __name__ == "__main__":
     cli.run_app(server)

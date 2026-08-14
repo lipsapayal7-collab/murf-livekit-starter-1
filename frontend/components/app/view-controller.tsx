@@ -1,8 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { useTheme } from 'next-themes';
 import { AnimatePresence, motion } from 'motion/react';
 import { useSessionContext } from '@livekit/components-react';
+
 import type { AppConfig } from '@/app-config';
 import { AgentSessionView_01 } from '@/components/agents-ui/blocks/agent-session-view-01';
 import { WelcomeView } from '@/components/app/welcome-view';
@@ -32,22 +34,35 @@ interface ViewControllerProps {
   appConfig: AppConfig;
 }
 
+type AppTab =
+  | 'home'
+  | 'schemes'
+  | 'fraud'
+  | 'complaint'
+  | 'dashboard';
+
 export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
   const { resolvedTheme } = useTheme();
 
+  const [currentTab, setCurrentTab] = useState<AppTab>('home');
+
   return (
     <AnimatePresence mode="wait">
-      {/* Welcome view */}
+
+      {/* Welcome / Portal */}
       {!isConnected && (
         <MotionWelcomeView
           key="welcome"
           {...VIEW_MOTION_PROPS}
           startButtonText={appConfig.startButtonText}
           onStartCall={start}
+          currentTab={currentTab}
+          onTabChange={setCurrentTab}
         />
       )}
-      {/* Session view */}
+
+      {/* Voice Call Session */}
       {isConnected && (
         <MotionSessionView
           key="session-view"
@@ -64,14 +79,25 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           }
           audioVisualizerColorShift={appConfig.audioVisualizerColorShift}
           audioVisualizerBarCount={appConfig.audioVisualizerBarCount}
-          audioVisualizerGridRowCount={appConfig.audioVisualizerGridRowCount}
-          audioVisualizerGridColumnCount={appConfig.audioVisualizerGridColumnCount}
-          audioVisualizerRadialBarCount={appConfig.audioVisualizerRadialBarCount}
-          audioVisualizerRadialRadius={appConfig.audioVisualizerRadialRadius}
-          audioVisualizerWaveLineWidth={appConfig.audioVisualizerWaveLineWidth}
+          audioVisualizerGridRowCount={
+            appConfig.audioVisualizerGridRowCount
+          }
+          audioVisualizerGridColumnCount={
+            appConfig.audioVisualizerGridColumnCount
+          }
+          audioVisualizerRadialBarCount={
+            appConfig.audioVisualizerRadialBarCount
+          }
+          audioVisualizerRadialRadius={
+            appConfig.audioVisualizerRadialRadius
+          }
+          audioVisualizerWaveLineWidth={
+            appConfig.audioVisualizerWaveLineWidth
+          }
           className="fixed inset-0"
         />
       )}
+
     </AnimatePresence>
   );
 }

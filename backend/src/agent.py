@@ -1,155 +1,402 @@
+from __future__ import annotations
+
 import logging
+import time
+from pathlib import Path
 
 from dotenv import load_dotenv
 from livekit import rtc
+
 from livekit.agents import (
     Agent,
     AgentServer,
     AgentSession,
     JobContext,
     JobProcess,
+    RunContext,
+    UserInputTranscribedEvent,
     cli,
-    inference,
-    tokenize,
+    function_tool,
     room_io,
 )
-from livekit.plugins import murf, silero, google, deepgram, noise_cancellation
-from livekit.plugins.turn_detector.multilingual import MultilingualModel
 
-logger = logging.getLogger("agent")
-
-load_dotenv(".env.local")
-
-# Change this prompt to change what your voice agent does.
-# See README.md for example prompts (customer support, language tutor, receptionist).
-SYSTEM_PROMPT = """
-You are a knowledgeable and trustworthy Financial Services Support Agent specializing in Indian Government financial schemes, banking services, financial literacy, and fraud awareness. Assist users by explaining government schemes, banking processes, eligibility criteria, required documents, application procedures, and financial concepts in simple language.
-
-You can help with:
-- Government schemes (PMJDY, PMMY, PM-Kisan, APY, PMSBY, PMJJBY, Sukanya Samriddhi, PPF, NPS, SCSS, KCC, Stand-Up India, Startup India, DBT, and other Government-approved schemes)
-- Banking services (Savings Account, Current Account, FD, RD, Loans, UPI, NEFT, RTGS, IMPS, Internet Banking, Mobile Banking, KYC, Aadhaar Banking, RuPay Cards, NPCI services)
-- Financial literacy (saving, budgeting, insurance, pensions, investments, credit score, digital payments)
-- Fraud awareness (UPI fraud, OTP scams, phishing, QR code scams, fake customer care, loan scams, KYC fraud, identity theft, ATM fraud, cyber safety)
-
-Guidelines:
-- Explain everything in clear, simple, step-by-step language.
-- Provide accurate information based on official Government of India, RBI, NPCI, or authorized banking sources.
-- Mention eligibility, benefits, required documents, application process, and important notes whenever applicable.
-- Encourage users to verify important information through official government portals or bank branches.
-- Never ask for or store sensitive information such as OTPs, UPI PINs, passwords, debit/credit card numbers, CVV, or banking credentials.
-- Warn users whenever a query involves potential fraud or financial scams.
-- If a user reports fraud, advise them to immediately contact their bank, call the Cyber Crime Helpline (1930), and report the incident on the National Cyber Crime Reporting Portal.
-- If you are unsure about any information, clearly state your uncertainty and recommend contacting the relevant bank or government department instead of guessing.
-
-Your responses should be concise, professional, user-friendly, and focused on helping users make informed financial decisions while staying safe.
-"""
-
-
-class Assistant(Agent):
-    def __init__(self) -> None:
-        super().__init__(instructions=SYSTEM_PROMPT)
-
-    # To add tools, use the @function_tool decorator.
-    # Here's an example that adds a simple weather tool.
-    # You also have to add `from livekit.agents import function_tool, RunContext` to the top of this file
-    # @function_tool
-    # async def lookup_weather(self, context: RunContext, location: str):
-    #     """Use this tool to look up current weather information in the given location.
-    #
-    #     If the location is not supported by the weather service, the tool will indicate this. You must tell the user the location's weather is unavailable.
-    #
-    #     Args:
-    #         location: The location to look up weather information for (e.g. city name)
-    #     """
-    #
-    #     logger.info(f"Looking up weather for {location}")
-    #
-    #     return "sunny with a temperature of 70 degrees."
-
-
+from livekit.plugins import deepgram, google, murf, silero
+from database import (
+    init_db,
+    create_calls_table,
+    create_escalation,
+    save_call,
+)
+from prompt import SYSTEM_PROMPT
+from specialist_agent import GovernmentSchemeSpecialist
+logger = logging.getLogger("jan-sahay")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env.local")
+class JanSahay(Agent):
+    def __init__(self):
+        super().__init__(
+            instructions=SYSTEM_PROMPT
+        )
+    @function_tool()
+    async def handoff_to_government_scheme_specialist(
+        self,
+        context: RunContext,
+    ):
+        """
+        Transfer the conversation to the Government Scheme Specialist
+    for government scheme related questions.
+        """
+        return (
+            GovernmentSchemeSpecialist(
+                chat_ctx=self.chat_ctx.copy(
+                    exclude_instructions=True
+                )
+            ),
+            
+        )
+    @function_tool()
+    async def create_human_escalation(
+        self,
+        context: RunContext,
+        who_needs_help: str,
+        what_happened: str,
+        what_was_checked: str,
+        urgency: str,
+        language: str,
+        preferred_followup: str,
+    ) -> str:
+        """Create a human support request after caller consent."""
+        reference_id = create_escalation(
+            who_needs_help=who_needs_help,
+            what_happened=what_happened,
+            what_was_checked=what_was_checked,
+            urgency=urgency,
+            language=language,
+            preferred_followup=preferred_followup,
+        )
+        logger.info(
+            "Escalation created: %s",
+            reference_id
+        )
+        return (
+            f"Request created successfully. "
+            f"Reference ID: {reference_id}. "
+            f"Status: Open."
+        )
+init_db()
+create_calls_table()
 server = AgentServer()
-
-
 def prewarm(proc: JobProcess):
+
     proc.userdata["vad"] = silero.VAD.load()
-
-
 server.setup_fnc = prewarm
 
 
 @server.rtc_session(agent_name="my-agent")
 async def my_agent(ctx: JobContext):
-    # Logging setup
-    # Add any other context you want in all log entries here
-    ctx.log_context_fields = {
-        "room": ctx.room.name,
-    }
 
-    # Set up a voice AI pipeline using Murf Falcon, Gemini, Deepgram, and the LiveKit turn detector
+    logger.info(
+        "Starting Jan Sahay session in room: %s",
+        ctx.room.name
+    )
+
+  
+
+    call_started_at = time.monotonic()
+
+    user_spoke = False
+
+    detected_language = "English"
+
+    call_channel = "Browser"
+
+
+    call_saved = False
+
     session = AgentSession(
-        # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
-        # See all available models at https://docs.livekit.io/agents/models/stt/
-        stt=deepgram.STT(model="nova-3"),
-        # A Large Language Model (LLM) is your agent's brain, processing user input and generating a response
-        # See all available models at https://docs.livekit.io/agents/models/llm/
+
+        stt=deepgram.STT(
+            model="nova-3",
+            language="multi",
+        ),
+
         llm=google.LLM(
-                model="gemini-3.5-flash-lite",
-            ),
-        # Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
-        # See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
+            model="gemini-3.5-flash-lite",
+        ),
+
         tts=murf.TTS(
-                voice="Anisha", 
-                locale="en-IN",
-                style="Conversation",
-                tokenizer=tokenize.basic.SentenceTokenizer(min_sentence_len=2),
-                text_pacing=True
-            ),
-        # VAD and turn detection are used to determine when the user is speaking and when the agent should respond
-        # See more at https://docs.livekit.io/agents/build/turns
-        turn_detection=MultilingualModel(),
+            voice="Anisha",
+            locale="en-IN",
+            style="Conversation",
+        ),
+
         vad=ctx.proc.userdata["vad"],
-        # allow the LLM to generate a response while waiting for the end of turn
-        # See more at https://docs.livekit.io/agents/build/audio/#preemptive-generation
+
         preemptive_generation=True,
     )
 
-    # To use a realtime model instead of a voice pipeline, use the following session setup instead.
-    # (Note: This is for the OpenAI Realtime API. For other providers, see https://docs.livekit.io/agents/models/realtime/))
-    # 1. Install livekit-agents[openai]
-    # 2. Set OPENAI_API_KEY in .env.local
-    # 3. Add `from livekit.plugins import openai` to the top of this file
-    # 4. Use the following session setup instead of the version above
-    # session = AgentSession(
-    #     llm=openai.realtime.RealtimeModel(voice="marin")
-    # )
 
-    # # Add a virtual avatar to the session, if desired
-    # # For other providers, see https://docs.livekit.io/agents/models/avatar/
-    # avatar = hedra.AvatarSession(
-    #   avatar_id="...",  # See https://docs.livekit.io/agents/models/avatar/plugins/hedra
-    # )
-    # # Start the avatar and wait for it to join
-    # await avatar.start(session, room=ctx.room)
+    @session.on("user_input_transcribed")
+    def on_user_input_transcribed(
+        ev: UserInputTranscribedEvent
+    ):
 
-    # Start the session, which initializes the voice pipeline and warms up the models
+        nonlocal user_spoke
+        nonlocal detected_language
+
+        transcript = ev.transcript.strip().lower()
+
+        if not transcript:
+            return
+
+        # Caller actually spoke
+        user_spoke = True
+
+        has_devanagari = any(
+            0x0900 <= ord(char) <= 0x097F
+            for char in transcript
+        )
+
+        hindi_keywords = {
+            "kya",
+            "hai",
+            "aur",
+            "main",
+            "haan",
+            "nahi",
+            "aap",
+            "namaste",
+            "shukriya",
+            "yojana",
+            "batao",
+            "batayiye",
+            "samjhao",
+            "dhan",
+            "suraksha",
+            "bima",
+            "pension",
+            "mein",
+            "ke",
+            "ki",
+            "se",
+            "ko",
+            "ka",
+            "jo",
+            "toh",
+            "bhi",
+            "ho",
+            "kar",
+            "raha",
+            "rahi",
+            "mujhe",
+            "mera",
+            "meri",
+            "hum",
+            "tum",
+            "apna",
+            "apni",
+            "karke",
+            "karo",
+            "karna",
+            "tha",
+            "thi",
+            "the",
+            "ab",
+            "kab",
+            "sab",
+        }
+
+        words = set(
+            transcript.split()
+        )
+
+        has_hindi_words = not words.isdisjoint(
+            hindi_keywords
+        )
+
+        if has_devanagari or has_hindi_words:
+
+            detected_language = "Hindi"
+
+            session.tts.update_options(
+                voice="Anisha",
+                locale="hi-IN"
+            )
+
+        else:
+
+            detected_language = "English"
+
+            session.tts.update_options(
+                voice="Anisha",
+                locale="en-IN"
+            )
+
+        logger.info(
+            "Detected language: %s",
+            detected_language
+        )
+
+    def save_call_result():
+
+        nonlocal call_saved
+
+        if call_saved:
+            logger.info(
+                "Call already saved. Skipping duplicate."
+            )
+            return
+
+        call_saved = True
+
+        duration = int(
+            time.monotonic() - call_started_at
+        )
+
+        if not user_spoke:
+
+            outcome = "Failed"
+
+            failure_reason = "Incomplete Task"
+
+            outcome_result = (
+                "Caller connected but did not provide input"
+            )
+
+        else:
+
+            outcome = "Success"
+
+            failure_reason = None
+
+            outcome_result = (
+                "Conversation Completed"
+            )
+
+        try:
+
+            save_call(
+                user_id="Lipsa",
+                channel=call_channel,
+                language=detected_language,
+                duration=duration,
+                outcome=outcome,
+                failure_reason=failure_reason,
+                outcome_result=outcome_result,
+            )
+
+            logger.info(
+                "=========================================="
+            )
+
+            logger.info(
+                "DAY 9 CALL RECORDED"
+            )
+
+            logger.info(
+                "Channel: %s",
+                call_channel
+            )
+
+            logger.info(
+                "Language: %s",
+                detected_language
+            )
+
+            logger.info(
+                "Duration: %s seconds",
+                duration
+            )
+
+            logger.info(
+                "Outcome: %s",
+                outcome
+            )
+
+            logger.info(
+                "=========================================="
+            )
+
+        except Exception:
+
+            
+            call_saved = False
+
+            logger.exception(
+                "Failed to save call information"
+            )
+
+    @ctx.room.on("participant_disconnected")
+    def on_participant_disconnected(
+        participant: rtc.RemoteParticipant
+    ):
+
+        logger.info(
+            "Participant disconnected: %s",
+            participant.identity
+        )
+
+        logger.info(
+            "Saving call because participant disconnected..."
+        )
+
+        save_call_result()
+
+    @session.on("close")
+    def on_session_close(ev):
+
+        logger.info(
+            "Agent session closed."
+        )
+
+        save_call_result()
+
     await session.start(
-        agent=Assistant(),
+        agent=JanSahay(),
         room=ctx.room,
-        room_options=room_io.RoomOptions(
-            audio_input=room_io.AudioInputOptions(
-                noise_cancellation=lambda params: (
-                    noise_cancellation.BVCTelephony()
-                    if params.participant.kind
-                    == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
-                    else noise_cancellation.BVC()
-                ),
-            ),
-        ),
+        room_options=room_io.RoomOptions(),
     )
 
-    # Join the room and connect to the user
     await ctx.connect()
 
+    try:
+
+        for participant in ctx.room.remote_participants.values():
+
+            if (
+                participant.kind
+                == rtc.ParticipantKind.PARTICIPANT_KIND_SIP
+            ):
+
+                call_channel = "SIP"
+
+                break
+
+    except Exception:
+
+        logger.warning(
+            "Could not determine call channel. "
+            "Using Browser as default."
+        )
+
+
+    logger.info(
+        "Call channel detected: %s",
+        call_channel
+    )
+
+
+    await session.generate_reply(
+        instructions=(
+            "Greet the caller naturally. Say: "
+            "Hello! I'm Jan Sahay. How can I help you today?"
+        )
+    )
+
+
+    logger.info(
+        "Jan Sahay is ready."
+    )
 
 if __name__ == "__main__":
     cli.run_app(server)

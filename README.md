@@ -1,6 +1,6 @@
 # Jan Sahay — Voice AI Agent for Government Schemes & Financial Guidance
 
-Jan Sahay (जन सहाय) is a voice-first AI assistant designed to help citizens access information about **government schemes, financial services, banking basics, savings, fraud prevention, and complaint helplines** through natural voice conversations.
+Jan Sahay  is a voice-first AI assistant designed to help citizens access information about **government schemes, financial services, banking basics, savings, fraud prevention, and complaint helplines** through natural voice conversations.
 
 The project was built as part of the **10 Days of Voice Agents — VoiceForBharat Edition**.
 

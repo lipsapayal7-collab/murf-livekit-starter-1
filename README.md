@@ -1,4 +1,4 @@
-# 🇮🇳 Jan Sahay — Voice AI Agent for Government Schemes & Financial Guidance
+# Jan Sahay — Voice AI Agent for Government Schemes & Financial Guidance
 
 Jan Sahay (जन सहाय) is a voice-first AI assistant designed to help citizens access information about **government schemes, financial services, banking basics, savings, fraud prevention, and complaint helplines** through natural voice conversations.
 
@@ -185,7 +185,7 @@ User hears the response
 ## ✨ Key Features
 
 - 🎙️ Real-time voice conversations
-- 🇮🇳 Citizen-focused government scheme assistance
+-  Citizen-focused government scheme assistance
 - 💰 Banking and financial guidance
 - 🛡️ Fraud-prevention guidance
 - 🧠 User memory
